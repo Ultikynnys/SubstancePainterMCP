@@ -1,0 +1,50 @@
+{
+  "schema": "substance-painter-mcp/baking-preset@1",
+  "source_texture_set": "Bollard",
+  "enabled": true,
+  "enabled_bakers": [
+    "Normal",
+    "WorldSpaceNormal",
+    "ID",
+    "AO",
+    "Curvature",
+    "Position",
+    "Thickness"
+  ],
+  "enabled_uv_tiles": [],
+  "curvature_method": "FromMesh",
+  "common_values": {
+    "OutputSize": [
+      10,
+      10
+    ],
+    "DilationWidth": 32,
+    "ApplyDiffusion": true,
+    "LowAsHigh": true,
+    "CageMode": 0,
+    "MaxHeight": 0.009999999776482582,
+    "MaxDepth": 0.009999999776482582,
+    "RelativeScale": true,
+    "SmoothNormals": true,
+    "SkewFaceBehavior": 0,
+    "IgnoreBackface": true,
+    "FilterMethod": 0,
+    "LowpolySuffix": "_low",
+    "HipolySuffix": "_high",
+    "BackfaceCullingSuffix": "_ignorebf",
+    "SubSampling": 1
+  },
+  "baker_values": {
+    "Curvature": {
+      "NbSecondary": 256,
+      "SamplingRadius": 0.009700000286102295,
+      "MaxDistanceRelativeScale": true,
+      "FilterMethodSecondary": 0,
+      "AutoMinMax": true,
+      "TonemappingBounds": [
+        -1.0,
+        1.0
+      ]
+    }
+  }
+}
