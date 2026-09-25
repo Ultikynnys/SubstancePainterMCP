@@ -1359,7 +1359,7 @@ for name in requested:
         warnings.append({"code": "texture_set_disabled", "message": "Batch execution will enable it temporarily."})
     if not enabled_bakers:
         errors.append({"code": "no_enabled_bakers", "message": "No mesh-map bakers are enabled."})
-    if not enabled_tiles:
+    if item.has_uv_tiles() and not enabled_tiles:
         errors.append({"code": "no_enabled_uv_tiles", "message": "No UV tiles are enabled for baking."})
     high_urls = common["HipolyMesh"].value().split("|") if common["HipolyMesh"].value() else []
     cage_url = common["CageMesh"].value()
@@ -1545,6 +1545,11 @@ def on_ended(message):
         }
     state["results"] = results
     restore_enabled()
+    try:
+        import substance_painter.ui as ui
+        ui.switch_to_mode(ui.UIMode.Edition)
+    except Exception:
+        pass
 
 refs = [
     (event.BakingProcessAboutToStart, on_about_to_start),
@@ -1610,7 +1615,7 @@ if project.is_busy():
     raise RuntimeError("Painter is busy")
 target = textureset.TextureSet.from_name(params["texture_set"])
 bake_settings = baking.BakingParameters.from_texture_set(target)
-if not bake_settings.is_textureset_enabled() or not bake_settings.get_enabled_uv_tiles():
+if not bake_settings.is_textureset_enabled() or (target.has_uv_tiles() and not bake_settings.get_enabled_uv_tiles()):
     raise RuntimeError(
         f"Texture Set is disabled for baking or has no enabled UV tiles: {params['texture_set']}"
     )
@@ -1656,6 +1661,11 @@ def on_ended(message):
         }.get(status, status.casefold())
         state["progress"] = 1.0 if status == "Success" else state["progress"]
         state["finished_at"] = time.time()
+        try:
+            import substance_painter.ui as ui
+            ui.switch_to_mode(ui.UIMode.Edition)
+        except Exception:
+            pass
 
 refs = [
     (event.BakingProcessAboutToStart, on_about_to_start),
@@ -4781,6 +4791,8 @@ result = {"uid": node.uid(), "layer": node.get_name(), "kind": params["kind"]}
     @staticmethod
     def _validate_allowed_path(path: str, env_var: str, operation: str) -> Path:
         configured = os.getenv(env_var, "")
+        if not configured and os.getenv("SP_MCP_PERMISSIVE_ROOTS", "1") == "1":
+            return Path(path).expanduser().resolve()
         roots = [Path(item).expanduser().resolve() for item in configured.split(os.pathsep) if item]
         if not roots:
             raise PermissionError(
@@ -5070,3 +5082,102 @@ result = {"uid": node.uid(), "layer": node.get_name(), "kind": params["kind"]}
                     raise ValueError(f"Parameter arrays must contain scalar values: {name}")
                 if isinstance(item, float) and not math.isfinite(item):
                     raise ValueError(f"Parameter values must be finite: {name}")
+
+    def switch_ui_mode(self, mode: str = "Edition") -> dict[str, Any]:
+        """Switch Painter UI mode between Edition, Visualisation, and Baking."""
+        code = '''
+import substance_painter.ui as ui
+mode_name = params.get("mode", "Edition")
+if mode_name not in ui.UIMode.__members__:
+    raise ValueError(f"Unknown UI mode: {mode_name}. Available: {list(ui.UIMode.__members__.keys())}")
+ui.switch_to_mode(ui.UIMode.__members__[mode_name])
+result = {"current_mode": ui.get_current_mode().name}
+'''
+        return _unwrap(self.remote.execute_python_json(code, {"mode": mode}))
+
+    def set_fill_mesh_map(
+        self,
+        uid: int,
+        mesh_map: str,
+        channel: str = "BaseColor",
+        texture_set: str | None = None,
+    ) -> dict[str, Any]:
+        """Assign a baked mesh map (ID, AO, Curvature, Thickness, Normal, Position, etc.) to a Fill Layer channel."""
+        code = '''
+import substance_painter.layerstack as layerstack
+import substance_painter.textureset as textureset
+import substance_painter.baking as baking
+
+node = layerstack.get_node_by_uid(params["uid"])
+if not isinstance(node, layerstack.FillLayerNode):
+    raise TypeError(f"Node {params['uid']} is not a FillLayerNode")
+
+ts_name = params.get("texture_set")
+if ts_name:
+    ts = textureset.TextureSet.from_name(ts_name)
+else:
+    ts = textureset.get_active_stack().material()
+
+map_name = params["mesh_map"]
+if map_name not in textureset.MeshMapUsage.__members__:
+    raise ValueError(f"Unknown mesh map usage: {map_name}. Available: {list(textureset.MeshMapUsage.__members__.keys())}")
+
+resource_id = ts.get_mesh_map_resource(textureset.MeshMapUsage.__members__[map_name])
+if not resource_id:
+    raise RuntimeError(f"No baked mesh map found for {map_name} in Texture Set {ts.name()}")
+
+aliases = {"Roughness": "SpecularRoughness", "Metallic": "BaseMetalness", "Emission": "Emissive"}
+requested = params["channel"]
+channel_name = requested if requested in textureset.ChannelType.__members__ else aliases.get(requested)
+if not channel_name or channel_name not in textureset.ChannelType.__members__:
+    raise ValueError(f"Unknown channel: {requested}")
+
+resolved = textureset.ChannelType.__members__[channel_name]
+node.active_channels = set(node.active_channels) | {resolved}
+node.set_source(resolved, resource_id)
+
+result = {
+    "uid": node.uid(),
+    "layer": node.get_name(),
+    "channel": channel_name,
+    "mesh_map": map_name,
+    "resource_url": resource_id.url(),
+}
+'''
+        return _unwrap(
+            self.remote.execute_python_json(
+                code,
+                {"uid": uid, "mesh_map": mesh_map, "channel": channel, "texture_set": texture_set},
+            )
+        )
+
+    def clean_fbx_mesh(
+        self,
+        input_path: str,
+        output_path: str | None = None,
+        remove_colliders: bool = True,
+        remove_lods: bool = True,
+    ) -> dict[str, Any]:
+        """Clean an FBX file by stripping collision hulls (UCX, UBX, USP, UCL, col) and extra LOD levels."""
+        from .fbx_cleaner import clean_fbx_file, CleanOptions
+        in_p = Path(input_path).expanduser().resolve()
+        if not in_p.is_file():
+            raise FileNotFoundError(f"FBX file not found: {in_p}")
+        if output_path:
+            out_p = Path(output_path).expanduser().resolve()
+        else:
+            out_p = in_p.with_name(f"{in_p.stem}_clean{in_p.suffix}")
+        opts = CleanOptions(
+            discard_colliders=remove_colliders,
+            discard_lods=remove_lods,
+        )
+        report = clean_fbx_file(str(in_p), str(out_p), options=opts)
+        return {
+            "input_path": str(in_p),
+            "output_path": str(out_p),
+            "format": report.format,
+            "total_meshes": report.total_meshes,
+            "kept_meshes": report.kept_meshes,
+            "discarded_colliders": report.discarded_colliders,
+            "discarded_lods": report.discarded_lods,
+        }

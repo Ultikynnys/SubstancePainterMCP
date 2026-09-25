@@ -801,3 +801,24 @@ def test_export_rejects_path_outside_root(monkeypatch, tmp_path):
     monkeypatch.setenv("SP_MCP_EXPORT_ROOTS", str(allowed))
     with pytest.raises(PermissionError, match="outside"):
         PainterOperations(FakeRemote()).plan_texture_export(str(tmp_path / "elsewhere"), "preset")
+
+
+def test_switch_ui_mode_calls_remote():
+    remote = FakeRemote({"current_mode": "Edition"})
+    ops = PainterOperations(remote)
+    res = ops.switch_ui_mode("Edition")
+    assert res["current_mode"] == "Edition"
+
+
+def test_set_fill_mesh_map_calls_remote():
+    remote = FakeRemote({
+        "uid": 12,
+        "layer": "Fill",
+        "channel": "BaseColor",
+        "mesh_map": "ID",
+        "resource_url": "resource://project/id"
+    })
+    ops = PainterOperations(remote)
+    res = ops.set_fill_mesh_map(12, "ID", "BaseColor")
+    assert res["mesh_map"] == "ID"
+    assert res["resource_url"] == "resource://project/id"

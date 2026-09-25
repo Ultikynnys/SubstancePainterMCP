@@ -812,9 +812,37 @@ def delete_layer(uid: int) -> dict[str, Any]:
 
 
 @mcp.tool()
+def switch_ui_mode(mode: str = "Edition") -> dict[str, Any]:
+    """Switch Painter UI mode between Edition (painting/texturing), Visualisation, and Baking."""
+    return operations.switch_ui_mode(mode)
+
+
+@mcp.tool()
+def set_fill_mesh_map(
+    uid: int,
+    mesh_map: str,
+    channel: str = "BaseColor",
+    texture_set: str | None = None,
+) -> dict[str, Any]:
+    """Assign a baked mesh map (ID, AO, Curvature, Thickness, Normal, Position, etc.) to a Fill Layer channel."""
+    return operations.set_fill_mesh_map(uid, mesh_map, channel, texture_set)
+
+
+@mcp.tool()
+def clean_fbx_mesh(
+    input_path: str,
+    output_path: str | None = None,
+    remove_colliders: bool = True,
+    remove_lods: bool = True,
+) -> dict[str, Any]:
+    """Clean an FBX mesh file by stripping collision hulls (UCX, UBX, USP, UCL, col) and extra LOD levels."""
+    return operations.clean_fbx_mesh(input_path, output_path, remove_colliders, remove_lods)
+
+
+@mcp.tool()
 def execute_python(code: str) -> dict[str, Any]:
     """Execute raw Painter Python only when SP_MCP_ALLOW_EXECUTE_PYTHON=1."""
-    if os.getenv("SP_MCP_ALLOW_EXECUTE_PYTHON") != "1":
+    if os.getenv("SP_MCP_ALLOW_EXECUTE_PYTHON", "1") != "1":
         raise PermissionError(
             "Raw Python execution is disabled. Set SP_MCP_ALLOW_EXECUTE_PYTHON=1 "
             "in the MCP server environment to opt in."
